@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
 
+from .region_loss import * 
+
 class ReorgLayer(nn.Module):
     def __init__(self, stride=2):
         super(ReorgLayer, self).__init__()
@@ -22,10 +24,8 @@ class ReorgLayer(nn.Module):
         return x
 
 class SkrNet(nn.Module):
-    def __init__(self, width, height, num_class, detection = True):
+    def __init__(self, num_class = 102, detection = True):
         super(SkrNet, self).__init__()
-        self.width = int(width)
-        self.height = int(height)
         self.num_class = int(num_class)
         self.detection = detection
         self.reorg = ReorgLayer(stride=2)
@@ -59,7 +59,7 @@ class SkrNet(nn.Module):
             conv_dw(2560, 1024, 1),
         )
         self.initialize_weights()
-
+        self.loss = RegionLoss()
     def forward(self, x):
         x_p1 = self.model_p1(x)
         x_p1_reorg = self.reorg(x_p1)
