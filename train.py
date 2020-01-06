@@ -78,14 +78,13 @@ num_gpu = len(args.device.split(','))
 os.environ["CUDA_VISIBLE_DEVICES"] = args.device
 if(len(args.device)>1):
     model.to("cuda:{}".format(args.device.split(',')[0]))
-    model = nn.DataParallel(model).cuda()
+    device_ids = [int(device) for device in args.device.split(',')]
+    model = nn.DataParallel(model,device_ids=device_ids).cuda()
     region_loss = model.module.loss
 else:
     model.to("cuda:{}".format(args.device))
     model.cuda()
     region_loss = model.loss
-
-
 
 train_dataset = ListDataset(train_path)
 valid_dataset = ListDataset(valid_path)

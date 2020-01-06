@@ -11,40 +11,71 @@ def bbox_anchor_iou(bbox, anchor):
     union_area = (bbox[0] * bbox[1] + 1e-16) + anchor[0] * anchor[1] - inter_area
     return inter_area / union_area
 
-def bbox_iou(box1, box2, x1y1x2y2=True):
-    if x1y1x2y2:
-        mx = min(box1[0], box2[0])
-        Mx = max(box1[2], box2[2])
-        my = min(box1[1], box2[1])
-        My = max(box1[3], box2[3])
-        w1 = box1[2] - box1[0]
-        h1 = box1[3] - box1[1]
-        w2 = box2[2] - box2[0]
-        h2 = box2[3] - box2[1]
+def box_iou(box1, box2, x1y1x2y2=True):
+    """
+    Returns the IoU of two bounding boxes
+    """
+    if not x1y1x2y2:
+        # Transform from center and width to exact coordinates
+        b1_x1, b1_x2 = box1[0] - box1[2] / 2, box1[0] + box1[2] / 2
+        b1_y1, b1_y2 = box1[1] - box1[3] / 2, box1[1] + box1[3] / 2
+        b2_x1, b2_x2 = box2[0] - box2[2] / 2, box2[0] + box2[2] / 2
+        b2_y1, b2_y2 = box2[1] - box2[3] / 2, box2[1] + box2[3] / 2
     else:
-        mx = min(box1[0]-box1[2]/2.0, box2[0]-box2[2]/2.0)
-        Mx = max(box1[0]+box1[2]/2.0, box2[0]+box2[2]/2.0)
-        my = min(box1[1]-box1[3]/2.0, box2[1]-box2[3]/2.0)
-        My = max(box1[1]+box1[3]/2.0, box2[1]+box2[3]/2.0)
-        w1 = box1[2]
-        h1 = box1[3]
-        w2 = box2[2]
-        h2 = box2[3]
-    uw = Mx - mx
-    uh = My - my
-    cw = w1 + w2 - uw
-    ch = h1 + h2 - uh
-    carea = 0
-    if cw <= 0 or ch <= 0:
-        return 0.0
+        # Get the coordinates of bounding boxes
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[0], box1[1], box1[2], box1[3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[0], box2[1], box2[2], box2[3]
 
-    area1 = w1 * h1
-    area2 = w2 * h2
-    carea = cw * ch
-    uarea = area1 + area2 - carea
-    return carea/uarea
+    # get the corrdinates of the intersection rectangle
+    inter_rect_x1 = torch.max(b1_x1, b2_x1)
+    inter_rect_y1 = torch.max(b1_y1, b2_y1)
+    inter_rect_x2 = torch.min(b1_x2, b2_x2)
+    inter_rect_y2 = torch.min(b1_y2, b2_y2)
+    # Intersection area
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(
+        inter_rect_y2 - inter_rect_y1 + 1, min=0
+    )
+    # Union Area
+    b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
+    b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
 
-def build_targets(pred_boxes, target, anchors, ignore_thres):
+    iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
+
+    return iou
+
+def boxes_iou(box1, box2, x1y1x2y2=True):
+    """
+    Returns the IoU of two bounding boxes
+    """
+    if not x1y1x2y2:
+        # Transform from center and width to exact coordinates
+        b1_x1, b1_x2 = box1[..., 0] - box1[..., 2] / 2, box1[..., 0] + box1[..., 2] / 2
+        b1_y1, b1_y2 = box1[..., 1] - box1[..., 3] / 2, box1[..., 1] + box1[..., 3] / 2
+        b2_x1, b2_x2 = box2[..., 0] - box2[..., 2] / 2, box2[..., 0] + box2[..., 2] / 2
+        b2_y1, b2_y2 = box2[..., 1] - box2[..., 3] / 2, box2[..., 1] + box2[..., 3] / 2
+    else:
+        # Get the coordinates of bounding boxes
+        b1_x1, b1_y1, b1_x2, b1_y2 = box1[..., 0], box1[..., 1], box1[..., 2], box1[..., 3]
+        b2_x1, b2_y1, b2_x2, b2_y2 = box2[..., 0], box2[..., 1], box2[..., 2], box2[..., 3]
+
+    # get the corrdinates of the intersection rectangle
+    inter_rect_x1 = torch.max(b1_x1, b2_x1)
+    inter_rect_y1 = torch.max(b1_y1, b2_y1)
+    inter_rect_x2 = torch.min(b1_x2, b2_x2)
+    inter_rect_y2 = torch.min(b1_y2, b2_y2)
+    # Intersection area
+    inter_area = torch.clamp(inter_rect_x2 - inter_rect_x1 + 1, min=0) * torch.clamp(
+        inter_rect_y2 - inter_rect_y1 + 1, min=0
+    )
+    # Union Area
+    b1_area = (b1_x2 - b1_x1 + 1) * (b1_y2 - b1_y1 + 1)
+    b2_area = (b2_x2 - b2_x1 + 1) * (b2_y2 - b2_y1 + 1)
+
+    iou = inter_area / (b1_area + b2_area - inter_area + 1e-16)
+
+    return iou
+
+def build_targets(pred_boxes, targets, anchors, ignore_thres):
     # target.shape [nB,4],(center x, center y, w, h)
     nB = pred_boxes.size(0)
     nA = pred_boxes.size(1)
@@ -58,29 +89,31 @@ def build_targets(pred_boxes, target, anchors, ignore_thres):
     tw         = torch.cuda.FloatTensor(nB, nA, nH, nW).fill_(0)
     th         = torch.cuda.FloatTensor(nB, nA, nH, nW).fill_(0)
     tconf      = torch.cuda.FloatTensor(nB, nA, nH, nW).fill_(0)
-    scale      = torch.cuda.FloatTensor(nB)
 
-    gt_x = target[:,0]*nW # ground truth x
-    gt_y = target[:,1]*nH # ground truth y
-    gt_w = target[:,2]*nW # ground truth w
-    gt_h = target[:,3]*nH # ground truth h
+    gt_x = targets[:,0]*nW # ground truth x
+    gt_y = targets[:,1]*nH # ground truth y
+    gt_w = targets[:,2]*nW # ground truth w
+    gt_h = targets[:,3]*nH # ground truth h
+
+    gt_box = torch.cuda.FloatTensor(targets.shape)
+    gt_box[:,0] = targets[:,0]*nW # ground truth x
+    gt_box[:,1] = targets[:,1]*nH # ground truth y 
+    gt_box[:,2] = targets[:,2]*nW # ground truth w
+    gt_box[:,3] = targets[:,3]*nH # ground truth h
     grid_x = gt_x.long()  # grid x
     grid_y = gt_y.long()  # grid y
 
-    # Set noobj mask to zero where iou exceeds ignore threshold
+    recall50, recall75 = 0.0, 0.0
     for b in range(nB):
-        for a in range(nA):
-            for h in range(nH):
-                for w in range(nW):
-                    iou = bbox_iou(pred_boxes[b,a,h,w], (gt_x[b],gt_y[b],gt_w[b],gt_h[b]), x1y1x2y2=False)
-                    if(iou > ignore_thres):
-                        noobj_mask[b,a,h,w] = False
-
-    for b in range(nB):
-        ious = torch.stack([bbox_anchor_iou((gt_w[b],gt_h[b]), anchor) for anchor in anchors])
-        best_ious, best_n = ious.max(0)
+        anchor_ious = torch.stack([bbox_anchor_iou((gt_w[b],gt_h[b]), anchor) for anchor in anchors])
+        best_ious, best_n = anchor_ious.max(0)
         obj_mask[b, best_n, grid_y[b], grid_x[b]] = True
         noobj_mask[b, best_n, grid_y[b], grid_x[b]] = False
+        
+        # Set noobj mask to zero where iou exceeds ignore threshold
+        gt_boxes = gt_box.repeat(nA*nH*nW,1).view(nA,nH,nW,-1)
+        ious = boxes_iou(pred_boxes[b], gt_boxes, x1y1x2y2=False)
+        noobj_mask[b][ious>ignore_thres] = False
         
         # Coordinates
         tx[b, best_n, grid_y[b], grid_x[b]] = gt_x[b] - gt_x[b].floor()
@@ -89,10 +122,16 @@ def build_targets(pred_boxes, target, anchors, ignore_thres):
         tw[b, best_n, grid_y[b], grid_x[b]] = torch.log(gt_w[b] / anchors[best_n][0] + 1e-16)
         th[b, best_n, grid_y[b], grid_x[b]] = torch.log(gt_h[b] / anchors[best_n][1] + 1e-16)
         tconf[b, best_n, grid_y[b], grid_x[b]] = 1
-    scale = 2 - target[:,2]*target[:,3]
+        iou = box_iou(pred_boxes[b, best_n, grid_y[b], grid_x[b]], gt_box[b], x1y1x2y2=False)
+        if(iou > 0.5):
+            recall50 = recall50 + 1
+        if(iou > 0.75):
+            recall75 = recall75 + 1
+
+    scale = 2 - targets[:,2]*targets[:,3]
     tconf = obj_mask.float()
 
-    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf
+    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/(nB*nA*nH*nW), recall75/(nB*nA*nH*nW)
 
 
 class RegionLoss(nn.Module):
@@ -105,7 +144,7 @@ class RegionLoss(nn.Module):
         self.thresh = 0.6
         self.seen = 0
 
-    def forward(self, output, target):
+    def forward(self, output, targets):
        
         nB = output.data.size(0)
         nA = self.num_anchors
@@ -133,7 +172,7 @@ class RegionLoss(nn.Module):
         pred_boxes[3] = torch.exp(h.data).view(nB*nA*nH*nW) * anchor_h
         pred_boxes = pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4)
         #pred_boxes = convert2cpu(pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4))
-        obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf = build_targets(pred_boxes, target.data, self.anchors, self.thresh)
+        obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50, recall75 = build_targets(pred_boxes, targets.data, self.anchors, self.thresh)
 
 
         tx    = Variable(tx.cuda())
@@ -152,6 +191,6 @@ class RegionLoss(nn.Module):
 
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf
 
-        print('loss: x %f, y %f, w %f, h %f, conf %f, total %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data,  loss.data))
+        print('loss: x %f, y %f, w %f, h %f, conf %f, total loss %f, recall50 %f, recall75 %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss.data, recall50, recall75))
 
         return loss

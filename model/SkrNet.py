@@ -31,7 +31,7 @@ class SkrNet(nn.Module):
         self.reorg = ReorgLayer(stride=2)
         self.fc = nn.Linear(1024, num_class)
         self.bbox = nn.Conv2d(1024, 10, 1, 1,bias=False)
-
+        self.loss = RegionLoss()
         def conv_dw(inp, oup, stride):
             return nn.Sequential(
                 nn.Conv2d(inp, inp, 3, stride, 1, groups=inp, bias=False),
@@ -59,7 +59,7 @@ class SkrNet(nn.Module):
             conv_dw(2560, 1024, 1),
         )
         self.initialize_weights()
-        self.loss = RegionLoss()
+        # self.loss = RegionLoss()
     def forward(self, x):
         x_p1 = self.model_p1(x)
         x_p1_reorg = self.reorg(x_p1)
