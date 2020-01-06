@@ -28,7 +28,7 @@ parser.add_argument('--batch-size', type=int, default=16, metavar='N',
                     help='batch size for each GPU during training (default: 16)')
 parser.add_argument('--num-workers', default=32, type=int, metavar='N',
                     help='number of data loading threads (default: 32)')
-parser.add_argument('--device', type=str, default='0,1,2,3,4,5,6,7', metavar='N',
+parser.add_argument('--device', type=str, default='0', metavar='N',
                     help='device id')
 parser.add_argument('--dataset', type=str, default='data/dji.data',
                     help='dataset (default: data/dji.data')
@@ -56,19 +56,18 @@ def train(model, data_loader, loss_func, optimizer):
     ready_batch = 0 
     for img, target in data_loader:
         img, target = img.cuda(), target.cuda()
-        print(img.dtype,target.dtype)
         img, target = Variable(img), Variable(target)
         optimizer.zero_grad()
         outputs = model(img)
         loss = loss_func(outputs, target)
-        #train_loss += loss.item()
+        train_loss += loss.item()
         loss.backward()
         optimizer.step()
         ready_batch += 1
         print("{}/{} ready/total".format(ready_batch, total_batch))
-    #train_loss /= float(len(data_loader))
+    train_loss /= float(len(data_loader))
 
-    #return train_loss
+    return train_loss
 
 data_config = parse_data_config(args.dataset)
 train_path  = data_config["train"]
@@ -82,6 +81,7 @@ if(len(args.device)>1):
     model = nn.DataParallel(model).cuda()
     region_loss = model.module.loss
 else:
+    model.to("cuda:{}".format(args.device))
     model.cuda()
     region_loss = model.loss
 
@@ -89,7 +89,7 @@ else:
 
 train_dataset = ListDataset(train_path)
 valid_dataset = ListDataset(valid_path)
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=num_gpu*args.batch_size, shuffle=True, num_workers=1)
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=num_gpu*args.batch_size, shuffle=True, num_workers=args.num_workers)
 valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=int(num_gpu*args.batch_size/2), shuffle=True, num_workers=args.num_workers)
 
 if(args.optimizer == 'SGD'):

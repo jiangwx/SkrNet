@@ -11,6 +11,39 @@ def bbox_anchor_iou(bbox, anchor):
     union_area = (bbox[0] * bbox[1] + 1e-16) + anchor[0] * anchor[1] - inter_area
     return inter_area / union_area
 
+def bbox_iou(box1, box2, x1y1x2y2=True):
+    if x1y1x2y2:
+        mx = min(box1[0], box2[0])
+        Mx = max(box1[2], box2[2])
+        my = min(box1[1], box2[1])
+        My = max(box1[3], box2[3])
+        w1 = box1[2] - box1[0]
+        h1 = box1[3] - box1[1]
+        w2 = box2[2] - box2[0]
+        h2 = box2[3] - box2[1]
+    else:
+        mx = min(box1[0]-box1[2]/2.0, box2[0]-box2[2]/2.0)
+        Mx = max(box1[0]+box1[2]/2.0, box2[0]+box2[2]/2.0)
+        my = min(box1[1]-box1[3]/2.0, box2[1]-box2[3]/2.0)
+        My = max(box1[1]+box1[3]/2.0, box2[1]+box2[3]/2.0)
+        w1 = box1[2]
+        h1 = box1[3]
+        w2 = box2[2]
+        h2 = box2[3]
+    uw = Mx - mx
+    uh = My - my
+    cw = w1 + w2 - uw
+    ch = h1 + h2 - uh
+    carea = 0
+    if cw <= 0 or ch <= 0:
+        return 0.0
+
+    area1 = w1 * h1
+    area2 = w2 * h2
+    carea = cw * ch
+    uarea = area1 + area2 - carea
+    return carea/uarea
+
 def build_targets(pred_boxes, target, anchors, ignore_thres):
     # target.shape [nB,4],(center x, center y, w, h)
     nB = pred_boxes.size(0)
@@ -25,32 +58,41 @@ def build_targets(pred_boxes, target, anchors, ignore_thres):
     tw         = torch.cuda.FloatTensor(nB, nA, nH, nW).fill_(0)
     th         = torch.cuda.FloatTensor(nB, nA, nH, nW).fill_(0)
     tconf      = torch.cuda.FloatTensor(nB, nA, nH, nW).fill_(0)
+    scale      = torch.cuda.FloatTensor(nB)
 
-    gt_x = target[:,1]*nW # ground truth x
-    gt_y = target[:,2]*nH # ground truth y
+    gt_x = target[:,0]*nW # ground truth x
+    gt_y = target[:,1]*nH # ground truth y
     gt_w = target[:,2]*nW # ground truth w
     gt_h = target[:,3]*nH # ground truth h
     grid_x = gt_x.long()  # grid x
     grid_y = gt_y.long()  # grid y
+
+    # Set noobj mask to zero where iou exceeds ignore threshold
+    for b in range(nB):
+        for a in range(nA):
+            for h in range(nH):
+                for w in range(nW):
+                    iou = bbox_iou(pred_boxes[b,a,h,w], (gt_x[b],gt_y[b],gt_w[b],gt_h[b]), x1y1x2y2=False)
+                    if(iou > ignore_thres):
+                        noobj_mask[b,a,h,w] = False
 
     for b in range(nB):
         ious = torch.stack([bbox_anchor_iou((gt_w[b],gt_h[b]), anchor) for anchor in anchors])
         best_ious, best_n = ious.max(0)
         obj_mask[b, best_n, grid_y[b], grid_x[b]] = True
         noobj_mask[b, best_n, grid_y[b], grid_x[b]] = False
-        for i,anchor_ious in enumerate(ious):
-            if(anchor_ious > ignore_thres):
-                noobj_mask[b,i, grid_y[b], grid_x[b]] = False
+        
         # Coordinates
         tx[b, best_n, grid_y[b], grid_x[b]] = gt_x[b] - gt_x[b].floor()
         ty[b, best_n, grid_y[b], grid_x[b]] = gt_y[b] - gt_y[b].floor()
         # Width and height
         tw[b, best_n, grid_y[b], grid_x[b]] = torch.log(gt_w[b] / anchors[best_n][0] + 1e-16)
         th[b, best_n, grid_y[b], grid_x[b]] = torch.log(gt_h[b] / anchors[best_n][1] + 1e-16)
-
+        tconf[b, best_n, grid_y[b], grid_x[b]] = 1
+    scale = 2 - target[:,2]*target[:,3]
     tconf = obj_mask.float()
 
-    return obj_mask, noobj_mask, tx, ty, tw, th, tconf
+    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf
 
 
 class RegionLoss(nn.Module):
@@ -91,7 +133,7 @@ class RegionLoss(nn.Module):
         pred_boxes[3] = torch.exp(h.data).view(nB*nA*nH*nW) * anchor_h
         pred_boxes = pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4)
         #pred_boxes = convert2cpu(pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4))
-        obj_mask, noobj_mask, tx, ty, tw, th, tconf = build_targets(pred_boxes, target.data, self.anchors, self.thresh)
+        obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf = build_targets(pred_boxes, target.data, self.anchors, self.thresh)
 
 
         tx    = Variable(tx.cuda())
@@ -102,17 +144,14 @@ class RegionLoss(nn.Module):
         obj_mask = Variable(obj_mask.cuda())
         noobj_mask  = Variable(noobj_mask.cuda())
         
-        loss_scale = (2 - tw*th)*1.5
-        loss_x = nn.MSELoss()(x[obj_mask], tx[obj_mask])
-        loss_y = nn.MSELoss()(y[obj_mask], ty[obj_mask])
-        loss_w = nn.MSELoss()(w[obj_mask], tw[obj_mask])
-        loss_h = nn.MSELoss()(h[obj_mask], th[obj_mask])
-        loss_conf_obj   = nn.MSELoss()(conf[obj_mask], tconf[obj_mask])
-        loss_conf_noobj = nn.MSELoss()(conf[noobj_mask], tconf[noobj_mask])
-        loss_conf = self.object_scale * loss_conf_obj + self.noobject_scale * loss_conf_noobj
+        loss_x = nn.MSELoss()(x[obj_mask]*scale, tx[obj_mask]*scale)
+        loss_y = nn.MSELoss()(y[obj_mask]*scale, ty[obj_mask]*scale)
+        loss_w = nn.MSELoss()(w[obj_mask]*scale, tw[obj_mask]*scale)
+        loss_h = nn.MSELoss()(h[obj_mask]*scale, th[obj_mask]*scale)
+        loss_conf = self.object_scale*nn.MSELoss()(conf[obj_mask], tconf[obj_mask]) + self.noobject_scale * nn.MSELoss()(conf[noobj_mask], tconf[noobj_mask])
 
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf
 
-        print('loss: x %f, y %f, w %f, h %f, conf %f, total %f' % (loss_x.data[0], loss_y.data[0], loss_w.data[0], loss_h.data[0], loss_conf.data[0],  loss.data[0]))
+        print('loss: x %f, y %f, w %f, h %f, conf %f, total %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data,  loss.data))
 
         return loss
