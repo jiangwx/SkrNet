@@ -24,9 +24,9 @@ from utils.utils import *
 parser = argparse.ArgumentParser(description='SkrNet Object Detection training')
 parser.add_argument('--model', type=str, default='SkrNet', metavar='model',
                     help='model to train (SkrNet,VGG16,ResNet18)')
-parser.add_argument('--batch-size', type=int, default=16, metavar='N',
-                    help='batch size for each GPU during training (default: 16)')
-parser.add_argument('--num-workers', default=32, type=int, metavar='N',
+parser.add_argument('--batch', type=int, default=32, metavar='N',
+                    help='batch size for each GPU during training (default: 32)')
+parser.add_argument('--workers', default=32, type=int, metavar='N',
                     help='number of data loading threads (default: 32)')
 parser.add_argument('--device', type=str, default='0', metavar='N',
                     help='device id')
@@ -51,7 +51,9 @@ def log(log_file,str):
 
 def train(model, data_loader, loss_func, optimizer):
     model.train()
-    train_loss = 0.0
+    avg_loss = 0.0
+    avg_recall50 = 0.0
+    avg_recall75 = 0.0
     total_batch = len(data_loader)
     ready_batch = 0 
     for img, target in data_loader:
@@ -59,15 +61,19 @@ def train(model, data_loader, loss_func, optimizer):
         img, target = Variable(img), Variable(target)
         optimizer.zero_grad()
         outputs = model(img)
-        loss = loss_func(outputs, target)
-        train_loss += loss.item()
+        loss, recall50, recall75 = loss_func(outputs, target)
+        avg_loss += loss.item()
+        avg_recall50 += recall50
+        recaavg_recall75 += recall75
         loss.backward()
         optimizer.step()
         ready_batch += 1
         print("{}/{} ready/total".format(ready_batch, total_batch))
-    train_loss /= float(len(data_loader))
+    avg_loss /= float(len(data_loader))
+    avg_recall50 /= float(len(data_loader))
+    avg_recall75 /= float(len(data_loader))
 
-    return train_loss
+    return avg_loss, avg_recall50, avg_recall75
 
 data_config = parse_data_config(args.dataset)
 train_path  = data_config["train"]
@@ -81,6 +87,7 @@ if(len(args.device)>1):
     device_ids = [int(device) for device in args.device.split(',')]
     model = nn.DataParallel(model,device_ids=device_ids).cuda()
     region_loss = model.module.loss
+    # region_loss = nn.DataParallel(model.module.loss,device_ids=device_ids).cuda()
 else:
     model.to("cuda:{}".format(args.device))
     model.cuda()
@@ -88,8 +95,8 @@ else:
 
 train_dataset = ListDataset(train_path)
 valid_dataset = ListDataset(valid_path)
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=num_gpu*args.batch_size, shuffle=True, num_workers=args.num_workers)
-valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=int(num_gpu*args.batch_size/2), shuffle=True, num_workers=args.num_workers)
+train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=num_gpu*args.batch, shuffle=True, num_workers=args.workers, pin_memory=True)
+valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=int(num_gpu*args.batch/2), shuffle=True, num_workers=args.workers, pin_memory=True)
 
 if(args.optimizer == 'SGD'):
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
@@ -102,7 +109,8 @@ for epoch in range(args.start_epoch, args.epochs):
     log(args.log,'epoch%d...'%epoch)
     log(args.log,str(optimizer))
 
-    train_loss = train(model,train_loader,region_loss,optimizer)
-
+    loss, recall50, recall75 = train(model,train_loader,region_loss,optimizer)
+    print('avg loss: %f, avg recall50: %f, avg recall65:%f\n' % (loss,recall50,recall75))
+    log('avg loss: %f, avg recall50: %f, avg recall65:%f\n' % (loss,recall50,recall75))
     print('epoch%d time %.4fs\n' % (epoch,time.time()-start))
     log(args.log,'epoch%d time %.4fs\n' % (epoch,time.time()-start))

@@ -111,7 +111,7 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
         noobj_mask[b, best_n, grid_y[b], grid_x[b]] = False
         
         # Set noobj mask to zero where iou exceeds ignore threshold
-        gt_boxes = gt_box.repeat(nA*nH*nW,1).view(nA,nH,nW,-1)
+        gt_boxes = gt_box[b].repeat(nA*nH*nW,1).view(nA,nH,nW,-1)
         ious = boxes_iou(pred_boxes[b], gt_boxes, x1y1x2y2=False)
         noobj_mask[b][ious>ignore_thres] = False
         
@@ -131,7 +131,7 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
     scale = 2 - targets[:,2]*targets[:,3]
     tconf = obj_mask.float()
 
-    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/(nB*nA*nH*nW), recall75/(nB*nA*nH*nW)
+    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/nB, recall75/nB
 
 
 class RegionLoss(nn.Module):
@@ -193,4 +193,4 @@ class RegionLoss(nn.Module):
 
         print('loss: x %f, y %f, w %f, h %f, conf %f, total loss %f, recall50 %f, recall75 %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss.data, recall50, recall75))
 
-        return loss
+        return loss, recall50, recall75
