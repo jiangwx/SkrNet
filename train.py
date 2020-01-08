@@ -32,12 +32,14 @@ parser.add_argument('--device', type=str, default='0', metavar='N',
                     help='device id')
 parser.add_argument('--dataset', type=str, default='data/dji.data',
                     help='dataset (default: data/dji.data')
-parser.add_argument('--epochs', type=int, default=160, metavar='N',
+parser.add_argument('--end', type=int, default=160, metavar='N',
                     help='number of epochs to train (default: 160)')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+parser.add_argument('--start', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
+parser.add_argument('--pretrain', default='', type=str, metavar='PATH',
+                    help='path to pretrain checkpoint (default: none)')
 parser.add_argument('--optimizer', default='Adam', type=str, metavar='Optimizer',
                     help='optimizer: SGD, Adagrad, Adam, Adadelta, Adamax, ASGD, RMSprop')
 parser.add_argument('--log', default='./logs/%s.log'%time.strftime('%Y-%m-%d_%H:%M:%S',time.localtime(time.time())), type=str, metavar='PATH',
@@ -64,7 +66,7 @@ def train(model, data_loader, loss_func, optimizer):
         loss, recall50, recall75 = loss_func(outputs, target)
         avg_loss += loss.item()
         avg_recall50 += recall50
-        recaavg_recall75 += recall75
+        avg_recall75 += recall75
         loss.backward()
         optimizer.step()
         ready_batch += 1
@@ -79,7 +81,14 @@ data_config = parse_data_config(args.dataset)
 train_path  = data_config["train"]
 valid_path  = data_config["valid"]
 
-model = SkrNet()
+if(args.pretrain):
+    model = SkrNet(detection = False)
+    model.load_state_dict(torch.load(args.pretrain))
+    model.detection = True
+    print('load pretrain model')
+else:
+    model = SkrNet()
+
 num_gpu = len(args.device.split(','))
 os.environ["CUDA_VISIBLE_DEVICES"] = args.device
 if(len(args.device)>1):
@@ -103,14 +112,19 @@ if(args.optimizer == 'SGD'):
 elif(args.optimizer == 'Adam'):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
-for epoch in range(args.start_epoch, args.epochs):
+history_score = np.zeros((args.end + 1,3))
+for epoch in range(args.start, args.end):
     start = time.time()
     print('epoch%d...'%epoch)
     log(args.log,'epoch%d...'%epoch)
     log(args.log,str(optimizer))
 
     loss, recall50, recall75 = train(model,train_loader,region_loss,optimizer)
-    print('avg loss: %f, avg recall50: %f, avg recall65:%f\n' % (loss,recall50,recall75))
-    log('avg loss: %f, avg recall50: %f, avg recall65:%f\n' % (loss,recall50,recall75))
+    print('avg loss: %f, avg recall50: %f, avg recall75:%f\n' % (loss,recall50,recall75))
+    log('avg loss: %f, avg recall50: %f, avg recall75:%f\n' % (loss,recall50,recall75))
+    if recall75 > max(history_score[:,2]):
+        torch.save(model.module.state_dict(), './checkpoint/detection/%s_%.4f.pkl'%(args.model,recall75))
+    history_score[epoch][0] = loss
+    history_score[epoch][1] = recall50
+    history_score[epoch][2] = recall75
     print('epoch%d time %.4fs\n' % (epoch,time.time()-start))
-    log(args.log,'epoch%d time %.4fs\n' % (epoch,time.time()-start))

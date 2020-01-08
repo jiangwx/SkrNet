@@ -60,7 +60,7 @@ class SkrNet(nn.Module):
         )
         self.initialize_weights()
         # self.loss = RegionLoss()
-    def forward(self, x):
+    def forward(self, x, target = None):
         x_p1 = self.model_p1(x)
         x_p1_reorg = self.reorg(x_p1)
         x_p2 = self.model_p2(x_p1)
@@ -68,11 +68,14 @@ class SkrNet(nn.Module):
         x = self.model_p3(x_p3_in)
         if(self.detection):
             x = self.bbox(x)
+            return x
+            #loss, recall50, recall75 = self.loss(x, target)
+            #return loss, recall50, recall75 
         else:
             x = nn.AvgPool2d(x.size(2))(x)
             x = x.view(x.size(0), -1)
             x = self.fc(x)
-        return x
+            return x
 
     def initialize_weights(self):
         for m in self.modules():

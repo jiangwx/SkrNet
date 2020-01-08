@@ -166,10 +166,10 @@ class RegionLoss(nn.Module):
         anchor_w = anchor_w.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
         anchor_h = anchor_h.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
 
-        pred_boxes[0] = x.data.view(nB*nA*nH*nW) + grid_x
-        pred_boxes[1] = y.data.view(nB*nA*nH*nW) + grid_y
-        pred_boxes[2] = torch.exp(w.data).view(nB*nA*nH*nW) * anchor_w
-        pred_boxes[3] = torch.exp(h.data).view(nB*nA*nH*nW) * anchor_h
+        pred_boxes[0] = x.view(nB*nA*nH*nW) + grid_x
+        pred_boxes[1] = y.view(nB*nA*nH*nW) + grid_y
+        pred_boxes[2] = torch.exp(w).view(nB*nA*nH*nW) * anchor_w
+        pred_boxes[3] = torch.exp(h).view(nB*nA*nH*nW) * anchor_h
         pred_boxes = pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4)
         #pred_boxes = convert2cpu(pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4))
         obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50, recall75 = build_targets(pred_boxes, targets.data, self.anchors, self.thresh)
