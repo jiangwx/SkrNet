@@ -103,7 +103,7 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
     grid_x = gt_x.long()  # grid x
     grid_y = gt_y.long()  # grid y
 
-    recall50, recall75 = 0.0, 0.0
+    recall50, recall75, avg_iou = 0.0, 0.0, 0.0
     for b in range(nB):
         anchor_ious = torch.stack([bbox_anchor_iou((gt_w[b],gt_h[b]), anchor) for anchor in anchors])
         best_ious, best_n = anchor_ious.max(0)
@@ -127,11 +127,12 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
             recall50 = recall50 + 1
         if(iou > 0.75):
             recall75 = recall75 + 1
+        avg_iou += iou.item()
 
     scale = 2 - targets[:,2]*targets[:,3]
     tconf = obj_mask.float()
 
-    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/nB, recall75/nB
+    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/nB, recall75/nB, avg_iou/nB
 
 
 class RegionLoss(nn.Module):
@@ -172,7 +173,7 @@ class RegionLoss(nn.Module):
         pred_boxes[3] = torch.exp(h).view(nB*nA*nH*nW) * anchor_h
         pred_boxes = pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4)
         #pred_boxes = convert2cpu(pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4))
-        obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50, recall75 = build_targets(pred_boxes, targets.data, self.anchors, self.thresh)
+        obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50, recall75, iou = build_targets(pred_boxes, targets.data, self.anchors, self.thresh)
 
 
         tx    = Variable(tx.cuda())
@@ -191,6 +192,6 @@ class RegionLoss(nn.Module):
 
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf
 
-        print('loss: x %f, y %f, w %f, h %f, conf %f, total loss %f, recall50 %f, recall75 %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss.data, recall50, recall75))
+        print('loss: x %f, y %f, w %f, h %f, conf %f, total loss %f, recall50 %f, recall75 %f, iou %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss.data, recall50, recall75, iou))
 
-        return loss, recall50, recall75
+        return loss, recall50, recall75, iou
