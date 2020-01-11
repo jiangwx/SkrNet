@@ -28,9 +28,9 @@ parser.add_argument('--device', type=str, default='0,1,2,3,4,5,6,7', metavar='N'
                     help='device id')                  
 parser.add_argument('--dataset', type=str, default='/media/DATASET/mini-imagenet',
                     help='training dataset (default: /media/DATASET/mini-imagenet')
-parser.add_argument('--epochs', type=int, default=100, metavar='N',
+parser.add_argument('--end', type=int, default=100, metavar='N',
                     help='number of epochs to train (default: 160)')
-parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
+parser.add_argument('--start', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
@@ -103,12 +103,12 @@ log(args.log,str(args))
 train_data_transform = transforms.Compose([
     transforms.RandomResizedCrop(320),
     transforms.RandomHorizontalFlip(),
+    transforms.ColorJitter(brightness=0.5, contrast=0.5, hue=0.5),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 test_data_transform = transforms.Compose([
-    transforms.RandomResizedCrop(320),
-    transforms.RandomHorizontalFlip(),
+    transforms.CenterCrop(320),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
@@ -123,7 +123,7 @@ model = SkrNet(detection = False)
 print(model)
 
 log(args.log,str(model))
-if args.start_epoch != 0:
+if args.start != 0:
     model.load_state_dict(torch.load(args.resume))
     
 
@@ -141,17 +141,14 @@ test_dataset = torchvision.datasets.ImageFolder(root=args.dataset+'/val', transf
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=num_gpu*args.batch_size, shuffle=True, num_workers=args.num_workers)
 test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=int(num_gpu*args.batch_size/2), shuffle=True, num_workers=args.num_workers)
 
-start_epoch = args.start_epoch
-total_epoch = args.epochs
-
-history_score=np.zeros((total_epoch + 1,4))
+history_score=np.zeros((args.end + 1,4))
 
 loss_func = nn.CrossEntropyLoss()
 
 if(args.optimizer == 'SGD'):
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.02, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters())
 elif(args.optimizer == 'Adam'):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = torch.optim.Adam(model.parameters())
 elif(args.optimizer == 'RMSprop'):
     optimizer = torch.optim.RMSprop(model.parameters())
 elif(args.optimizer == 'Adagrad'):
@@ -173,7 +170,7 @@ elif(args.optimizer == 'ASGD'):
 else:
     print('please specify a valid optimizer')
 
-for epoch in range(start_epoch, total_epoch):
+for epoch in range(args.start, args.end):
     start = time.time()
     print('epoch%d...'%epoch)
     log(args.log,'epoch%d...'%epoch)

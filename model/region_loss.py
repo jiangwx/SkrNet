@@ -1,6 +1,7 @@
 import time
 import torch
 import math
+import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
@@ -103,7 +104,7 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
     grid_x = gt_x.long()  # grid x
     grid_y = gt_y.long()  # grid y
 
-    recall50, recall75 = 0.0, 0.0
+    recall50, recall75, avg_iou = 0.0, 0.0, 0.0
     for b in range(nB):
         anchor_ious = torch.stack([bbox_anchor_iou((gt_w[b],gt_h[b]), anchor) for anchor in anchors])
         best_ious, best_n = anchor_ious.max(0)
@@ -127,11 +128,12 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
             recall50 = recall50 + 1
         if(iou > 0.75):
             recall75 = recall75 + 1
-
+        avg_iou += iou
+    avg_iou /= nB
     scale = 2 - targets[:,2]*targets[:,3]
     tconf = obj_mask.float()
 
-    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/nB, recall75/nB
+    return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/nB, recall75/nB, avg_iou
 
 
 class RegionLoss(nn.Module):
@@ -172,7 +174,7 @@ class RegionLoss(nn.Module):
         pred_boxes[3] = torch.exp(h).view(nB*nA*nH*nW) * anchor_h
         pred_boxes = pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4)
         #pred_boxes = convert2cpu(pred_boxes.transpose(0,1).contiguous().view(nB,nA,nH,nW,4))
-        obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50, recall75 = build_targets(pred_boxes, targets.data, self.anchors, self.thresh)
+        obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50, recall75, avg_iou = build_targets(pred_boxes, targets.data, self.anchors, self.thresh)
 
 
         tx    = Variable(tx.cuda())
@@ -191,6 +193,46 @@ class RegionLoss(nn.Module):
 
         loss = loss_x + loss_y + loss_w + loss_h + loss_conf
 
-        print('loss: x %f, y %f, w %f, h %f, conf %f, total loss %f, recall50 %f, recall75 %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss.data, recall50, recall75))
+        print('loss: x %f, y %f, w %f, h %f, conf %f, total loss %f, recall50 %f, recall75 %f, avg_iou %f' % (loss_x.data, loss_y.data, loss_w.data, loss_h.data, loss_conf.data, loss.data, recall50, recall75, avg_iou))
 
-        return loss, recall50, recall75
+        return loss, recall50, recall75, avg_iou
+
+def evaluate(output, targets, anchors = [[1.4940052559648322,2.3598481287086823],[4.0113013115312155,5.760873975661669]]):
+    
+    nB = output.data.size(0)
+    nA = len(anchors)    
+    nH = output.data.size(2)
+    nW = output.data.size(3)
+
+    grid_x = torch.linspace(0, nW-1, nW).repeat(nH,1).repeat(nB*nA, 1, 1).view(nB*nA*nH*nW).cuda()
+    grid_y = torch.linspace(0, nH-1, nH).repeat(nW,1).t().repeat(nB*nA, 1, 1).view(nB*nA*nH*nW).cuda()
+    anchor_w = torch.cuda.FloatTensor(anchors)[:,0]
+    anchor_h = torch.cuda.FloatTensor(anchors)[:,1]
+    anchor_w = anchor_w.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
+    anchor_h = anchor_h.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
+
+    output  = output.view(nB, nA, 5, nH, nW).permute(0, 1, 3, 4, 2).contiguous()
+    conf    = torch.sigmoid(output[...,4]).view(nB*nA*nH*nW)
+
+    gt_box = torch.cuda.FloatTensor(targets.shape)
+    gt_box[:,0] = targets[:,0]*nW # ground truth x
+    gt_box[:,1] = targets[:,1]*nH # ground truth y
+    gt_box[:,2] = targets[:,2]*nW # ground truth w
+    gt_box[:,3] = targets[:,3]*nH # ground truth h
+
+    x = torch.sigmoid(output[..., 0]).view(nB*nA*nH*nW) + grid_x
+    y = torch.sigmoid(output[..., 1]).view(nB*nA*nH*nW) + grid_y
+    w = torch.exp(output[..., 2]).view(nB*nA*nH*nW) * anchor_w
+    h = torch.exp(output[..., 3]).view(nB*nA*nH*nW) * anchor_h
+    ious = np.zeros(nB)
+    for b in range(nB):
+        confidence = torch.FloatTensor(nA*nH*nW).copy_(conf[b*nA*nH*nW:(b+1)*nA*nH*nW]).detach().numpy()
+        index = np.argmax(confidence)
+        px = x[b*nA*nH*nW + index]
+        py = y[b*nA*nH*nW + index]
+        pw = w[b*nA*nH*nW + index]
+        ph = h[b*nA*nH*nW + index]
+
+        ious[b] = box_iou((px,py,pw,ph), gt_box[b], x1y1x2y2=False)
+        
+    return np.mean(ious)

@@ -24,13 +24,14 @@ class ReorgLayer(nn.Module):
         return x
 
 class SkrNet(nn.Module):
-    def __init__(self, num_class = 102, detection = True):
+    def __init__(self, cfg = [96,192,384,768,1024,1024], num_class = 102, detection = True):
         super(SkrNet, self).__init__()
+        self.cfg = cfg
         self.num_class = int(num_class)
         self.detection = detection
         self.reorg = ReorgLayer(stride=2)
-        self.fc = nn.Linear(1024, num_class)
-        self.bbox = nn.Conv2d(1024, 10, 1, 1,bias=False)
+        self.fc = nn.Linear(cfg[5], num_class)
+        self.bbox = nn.Conv2d(cfg[5], 10, 1, 1,bias=False)
         self.loss = RegionLoss()
         def conv_dw(inp, oup, stride):
             return nn.Sequential(
@@ -44,19 +45,19 @@ class SkrNet(nn.Module):
             )
 
         self.model_p1 = nn.Sequential(
-            conv_dw( 3, 96, 1),    #dw1
+            conv_dw( 3, self.cfg[0], 1),    #dw1
             nn.MaxPool2d(kernel_size=2, stride=2),
-            conv_dw( 96,  192, 1),   #dw2
+            conv_dw(self.cfg[0], self.cfg[1], 1),   #dw2
             nn.MaxPool2d(kernel_size=2, stride=2),
-            conv_dw( 192, 384, 1),   #dw3
+            conv_dw(self.cfg[1], self.cfg[2], 1),   #dw3
         )    
         self.model_p2 = nn.Sequential(    
             nn.MaxPool2d(kernel_size=2, stride=2),
-            conv_dw(384, 768, 1),   #dw4
-            conv_dw(768, 1024, 1),   #dw5
+            conv_dw(self.cfg[2], self.cfg[3], 1),   #dw4
+            conv_dw(self.cfg[3], self.cfg[4], 1),   #dw5
         )
         self.model_p3 = nn.Sequential(  #cat dw3(ch:192 -> 768) and dw5(ch:512)
-            conv_dw(2560, 1024, 1),
+            conv_dw(self.cfg[2]*4+self.cfg[4], self.cfg[5], 1),
         )
         self.initialize_weights()
         # self.loss = RegionLoss()
