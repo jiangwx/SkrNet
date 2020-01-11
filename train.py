@@ -51,12 +51,28 @@ def log(log_file,str):
     log.writelines(str+'\n') 
     log.close()
 
+def test(model, data_loader):
+    model.eval()
+    avg_iou = 0.0
+    for img, target in data_loader:
+        img, target = img.cuda(), target.cuda()
+        img, target = Variable(img), Variable(target)
+        output = model(img)
+        avg_iou += evaluate(output, target)
+    avg_iou /= float(len(data_loader))
+    return avg_iou
+
+
 def train(model, data_loader, loss_func, optimizer):
     model.train()
+<<<<<<< HEAD
     avg_loss = 0.0
     avg_recall50 = 0.0
     avg_recall75 = 0.0
     avg_iou = 0.0
+=======
+    avg_loss, avg_recall50, avg_recall75, avg_iou = 0.0, 0.0, 0.0, 0.0
+>>>>>>> cef988fa511cf54c63d5cfa9dcda94a832d9902e
     total_batch = len(data_loader)
     ready_batch = 0 
     for img, target in data_loader:
@@ -110,9 +126,9 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=num_gpu*arg
 valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=int(num_gpu*args.batch/2), shuffle=True, num_workers=args.workers, pin_memory=True)
 
 if(args.optimizer == 'SGD'):
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+    optimizer = torch.optim.SGD(model.parameters())
 elif(args.optimizer == 'Adam'):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    optimizer = torch.optim.Adam(model.parameters())
 
 history_score = np.zeros((args.end + 1,4))
 for epoch in range(args.start, args.end):
@@ -121,11 +137,22 @@ for epoch in range(args.start, args.end):
     log(args.log,'epoch%d...'%epoch)
     log(args.log,str(optimizer))
 
+<<<<<<< HEAD
     loss, recall50, recall75, iou = train(model,train_loader,region_loss,optimizer)
     print('avg loss: %f, avg recall50: %f, avg recall75:%f, avg iou:%f\n' % (loss,recall50,recall75,iou))
     log(args.log,'avg loss: %f, avg recall50: %f, avg recall75:%f, avg iou:%f\n' % (loss,recall50,recall75,iou))
     if recall75 > max(history_score[:,2]):
         torch.save(model.module.state_dict(), './checkpoint/detection/%s_%.4f.pkl'%(args.model,recall75))
+=======
+    loss, recall50, recall75, avg_iou = train(model,train_loader,region_loss,optimizer)
+    print('training: avg loss: %f, avg recall50: %f, avg recall75:%f, avg iou:%f\n' % (loss,recall50,recall75,avg_iou))
+    log(args.log,'training: avg loss: %f, avg recall50: %f, avg recall75:%f, avg iou:%f\n' % (loss,recall50,recall75,avg_iou))
+    iou = test(model, train_loader)
+    print('testing: avg iou: %f\n' % iou)
+    log(args.log,'testing: avg iou: %f\n' % iou)
+    if iou > max(history_score[:,3]):
+        torch.save(model.module.state_dict(), './checkpoint/detection/%s_%.4f.pkl'%(args.model,iou))
+>>>>>>> cef988fa511cf54c63d5cfa9dcda94a832d9902e
     history_score[epoch][0] = loss
     history_score[epoch][1] = recall50
     history_score[epoch][2] = recall75
