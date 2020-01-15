@@ -82,7 +82,6 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
     nA = pred_boxes.size(1)
     nH = pred_boxes.size(2)
     nW = pred_boxes.size(3)
-
     obj_mask   = torch.cuda.BoolTensor(nB, nA, nH, nW).fill_(False)
     noobj_mask = torch.cuda.BoolTensor(nB, nA, nH, nW).fill_(True)
     tx         = torch.cuda.FloatTensor(nB, nA, nH, nW).fill_(0)
@@ -115,7 +114,7 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
         gt_boxes = gt_box[b].repeat(nA*nH*nW,1).view(nA,nH,nW,-1)
         ious = boxes_iou(pred_boxes[b], gt_boxes, x1y1x2y2=False)
         noobj_mask[b][ious>ignore_thres] = False
-        
+
         # Coordinates
         tx[b, best_n, grid_y[b], grid_x[b]] = gt_x[b] - gt_x[b].floor()
         ty[b, best_n, grid_y[b], grid_x[b]] = gt_y[b] - gt_y[b].floor()
@@ -131,7 +130,6 @@ def build_targets(pred_boxes, targets, anchors, ignore_thres):
         avg_iou += iou.item()
 
     scale = 2 - targets[:,2]*targets[:,3]
-    tconf = obj_mask.float()
 
     return obj_mask, noobj_mask, scale, tx, ty, tw, th, tconf, recall50/nB, recall75/nB, avg_iou/nB
 
@@ -167,7 +165,6 @@ class RegionLoss(nn.Module):
         anchor_h = self.anchors[:,1]
         anchor_w = anchor_w.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
         anchor_h = anchor_h.repeat(nB, 1).repeat(1, 1, nH*nW).view(nB*nA*nH*nW)
-
         pred_boxes[0] = x.view(nB*nA*nH*nW) + grid_x
         pred_boxes[1] = y.view(nB*nA*nH*nW) + grid_y
         pred_boxes[2] = torch.exp(w).view(nB*nA*nH*nW) * anchor_w
@@ -200,7 +197,7 @@ class RegionLoss(nn.Module):
 def evaluate(output, targets, anchors = [[1.4940052559648322,2.3598481287086823],[4.0113013115312155,5.760873975661669]]):
     
     nB = output.data.size(0)
-    nA = len(anchors)    
+    nA = len(anchors)
     nH = output.data.size(2)
     nW = output.data.size(3)
 
@@ -233,6 +230,6 @@ def evaluate(output, targets, anchors = [[1.4940052559648322,2.3598481287086823]
         pw = w[b*nA*nH*nW + index]
         ph = h[b*nA*nH*nW + index]
 
-        ious[b] = box_iou((px,py,pw,ph), gt_box[b], x1y1x2y2=False)
+        ious[b] = box_iou((px,py,pw,ph), gt_box[b], x1y1x2y2=False).item()
         
     return np.mean(ious)
