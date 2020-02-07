@@ -26,6 +26,8 @@ parser.add_argument('--model', type=str, default='SkrNet', metavar='model',
                     help='model to train (SkrNet,VGG16,ResNet18)')
 parser.add_argument('--batch', type=int, default=32, metavar='N',
                     help='batch size for each GPU during training (default: 32)')
+parser.add_argument('--lr', type=float, default=0.01, metavar='N',
+                    help='learning rate (default: 0.001)')                    
 parser.add_argument('--workers', default=32, type=int, metavar='N',
                     help='number of data loading threads (default: 32)')
 parser.add_argument('--device', type=str, default='0', metavar='N',
@@ -82,6 +84,7 @@ def train(model, data_loader, loss_func, optimizer):
         optimizer.step()
         ready_batch += 1
         print("{}/{} ready/total".format(ready_batch, total_batch))
+    print(optimizer)
     avg_loss /= float(len(data_loader))
     avg_recall50 /= float(len(data_loader))
     avg_recall75 /= float(len(data_loader))
@@ -119,18 +122,19 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=num_gpu*arg
 valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=int(num_gpu*args.batch/4), shuffle=True, num_workers=args.workers, pin_memory=True)
 
 if(args.optimizer == 'SGD'):
-    optimizer = torch.optim.SGD(model.parameters())
+    optimizer = torch.optim.SGD(model.parameters(), lr = args.lr)
 elif(args.optimizer == 'Adam'):
     optimizer = torch.optim.Adam(model.parameters())
 
 history_score = np.zeros((args.end + 1,4))
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'max', factor=0.1, patience=5, verbose=True)
 for epoch in range(args.start, args.end):
     start = time.time()
     print('epoch%d...'%epoch)
     log(args.log,'epoch%d...'%epoch)
     log(args.log,str(optimizer))
-
     loss, recall50, recall75, avg_iou = train(model,train_loader,region_loss,optimizer)
+    scheduler.step(avg_iou)
     print('training: avg loss: %f, avg recall50: %f, avg recall75:%f, avg iou:%f\n' % (loss,recall50,recall75,avg_iou))
     log(args.log,'training: avg loss: %f, avg recall50: %f, avg recall75:%f, avg iou:%f\n' % (loss,recall50,recall75,avg_iou))
     iou = test(model, valid_loader)
